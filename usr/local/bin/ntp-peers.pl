@@ -1,27 +1,39 @@
 #!/usr/bin/perl
 
-#must be run as root
-$first = 1;
-
+use strict;
 #add path if needed into $smartctl_cmd
-$cmd = "/usr/sbin/ntpq";
+my $cmd = undef;
+my $host = $ENV{"NTP_SERVER"} || "localhost";
 
-$num_args = $#ARGV + 1;
-$command = $ARGV[0];
-if (($num_args != 2)and(!($command =~ /discovery/))) {
+foreach my $pth (split(":", $ENV{'PATH'})) {
+    my $_cmd = "$pth/ntpq";
+    if ( -x $_cmd ) {
+        $cmd = $_cmd;
+        last;
+    }
+}
+
+if ( ! defined $cmd ) {
+    print "\nntpq not found in \$PATH.";
+    exit 1;
+}
+
+my $num_args = $#ARGV + 1;
+my $command = $ARGV[0];
+if (($num_args != 2)and(!($command eq "discovery" || $command eq "server-count"))) {
     print "\nUsage: ntp-peers.pl command [peer_ip]\n";
     exit;
 }
-$dpeer = $ARGV[1];
+my $dpeer = $ARGV[1];
 
-my @pout = `$cmd -n -c peers localhost | awk 'match(\$1, /[0-9\\.]+/) {print \$1,\$(NF-7),\$(NF-2),\$(NF-1),\$NF;}'`;
+my @pout = `$cmd -n -c peers $host | grep -v '.PEER.' | awk 'match(\$1, /[0-9\\.]+/) {print \$1,\$(NF-7),\$(NF-2),\$(NF-1),\$NF;}'`;
 
-if ($command =~ /discovery/) {
+if ($command eq "discovery") {
   my $first = 1;
   print "{\"data\":[";
   foreach my $line (@pout) {
     chomp $line;
-    ($peer,$stratum,$delay,$offset,$jitter) = split(" ",$line);
+    my ($peer,$stratum,$delay,$offset,$jitter) = split(" ",$line);
     $peer=~s/(\d+\.\d+\.\d+\.\d+)/$1/g;
     $peer=$1;
     print "," if not $first;
@@ -33,41 +45,54 @@ if ($command =~ /discovery/) {
   }
   print "]}";
 }
-elsif ($command =~ /stratum/) {
+elsif ($command eq "stratum") {
   foreach my $line (@pout) {
     chomp $line;
-    ($peer,$stratum,$delay,$offset,$jitter) = split(" ",$line);
+    my ($peer,$stratum,$delay,$offset,$jitter) = split(" ",$line);
     $peer=~s/(\d+\.\d+\.\d+\.\d+)/$1/g;
     $peer=$1;
     if ($peer =~ /$dpeer/) { print "$stratum\n"; }
   }
 }
-elsif ($command =~ /delay/) {
+elsif ($command eq "delay") {
   foreach my $line (@pout) {
     chomp $line;
-    ($peer,$stratum,$delay,$offset,$jitter) = split(" ",$line);
+    my ($peer,$stratum,$delay,$offset,$jitter) = split(" ",$line);
     $peer=~s/(\d+\.\d+\.\d+\.\d+)/$1/g;
     $peer=$1;
     if ($peer =~ /$dpeer/) { print "$delay\n"; }
   }
 }
-elsif ($command =~ /offset/) {
+elsif ($command eq "offset") {
   foreach my $line (@pout) {
     chomp $line;
-    ($peer,$stratum,$delay,$offset,$jitter) = split(" ",$line);
+    my ($peer,$stratum,$delay,$offset,$jitter) = split(" ",$line);
     $peer=~s/(\d+\.\d+\.\d+\.\d+)/$1/g;
     $peer=$1;
     if ($peer =~ /$dpeer/) { print "$offset\n"; }
   }
 }
-elsif ($command =~ /jitter/) {
+elsif ($command eq "jitter") {
   foreach my $line (@pout) {
     chomp $line;
-    ($peer,$stratum,$delay,$offset,$jitter) = split(" ",$line);
+    my ($peer,$stratum,$delay,$offset,$jitter) = split(" ",$line);
     $peer=~s/(\d+\.\d+\.\d+\.\d+)/$1/g;
     $peer=$1;
     if ($peer =~ /$dpeer/) { print "$jitter\n"; }
   }
+}
+elsif ($command eq "above-limit-stratums" || $command eq "stratums-above-limit") {
+  my $count = 0;
+  foreach my $line (@pout) {
+    my ($peer,$stratum,$delay,$offset,$jitter) = split(" ",$line);
+    if ($stratum >= $dpeer) {
+      $count++;
+    }
+  }
+  print "$count\n";
+}
+elsif ($command eq "server-count") {
+  print $#pout + 1, "\n";
 }
 else {
   print "$dpeer\n";
